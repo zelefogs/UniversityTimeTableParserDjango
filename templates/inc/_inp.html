@@ -1,0 +1,13 @@
+<h4>Введите номер кабинета который хотите найти</h4>
+    <form method="POST">
+        {% autoescape off %}
+        <input type="text" name="name" id="inputcab" class={{ "form-control" }} aria-describedby="passwordHelpBlock">
+        {% endautoescape %}
+        {% csrf_token %}
+        <div id="cabHelpBlock" class="form-text">
+            Введите номер кабинета вместе с литерой корпуса. Пример(У 215), если не знаете номер можно ввести его часть (У 2)
+        </div>
+        <input type="submit" class="btn btn-primary" value="Найти кабинет">
+    </form>
+
+    <h4>{{error}}</h4>

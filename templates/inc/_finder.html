@@ -1,0 +1,25 @@
+  <table class="table table-striped">
+      <thead>
+      <tr>
+          <th>День недели</th>
+          <th>Время пары</th>
+          <th>Аудитория</th>
+          <th>Предмет</th>
+          <th>Преподаватель</th>
+      </tr>
+      </thead>
+      <tbody>
+      {% for element in table %}
+          {% if audit in element.audit %}
+            <tr>
+                <td>{{ element.day_of_week }}</td>
+                <td>{{ element.time }}</td>
+                <td>{{ element.audit }}</td>
+                <td>{{ element.subject}}</td>
+                <td>{{ element.teacher|default:"" }}</td>
+            </tr>
+          {% endif %}
+      {% endfor %}
+      </tbody>
+        <h1>{{ element.subject|truncatechars:1 }}</h1>
+  </table>
