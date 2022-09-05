@@ -1,11 +1,14 @@
 import sqlite3
-import threading
+import time
 
 import numpy as np
 import pandas as pd
 import requests
 import re
+from requests.exceptions import RequestException
 from bs4 import BeautifulSoup as bs
+from bs4.element import Tag
+from pandas.core.frame import DataFrame
 
 pd.options.mode.chained_assignment = None
 
@@ -60,7 +63,6 @@ def reload_database(URL="https://www.smtu.ru/ru/listschedule/"):
 			{'field_pair': [], 'day_of_week': [], 'time': [], 'audit': [], 'subject': [], 'teacher': []})
 		df = parse_rasp(urls[0])
 		for i in range(1, len(urls)):
-			print(df)
 			df = pd.concat([df, parse_rasp(urls[i])], ignore_index=True)
 
 		days = ['Понедельник', 'Вторник', 'Среда', 'Четверг', 'Пятница', 'Суббота']
@@ -83,96 +85,104 @@ def reload_database(URL="https://www.smtu.ru/ru/listschedule/"):
 		return 'Отсутствует интернет'
 
 
-def parse_rasp(url):
-	n = 0
-	r = requests.get(url)
-	soup = bs(r.text, "lxml")
-	table = soup.find('table')
-	try:
-		df = pd.read_html(str(table))
-	except ValueError:
-		return "Проблемы с сервером"
-	df = df[0]
-	if not list(df.index.values):
-		return
+start_time = time.time()
 
-	dni = df.columns[0][1:len(df.columns[0])]
-	school_day = table.find_all('tbody')[1:]
-	kol_par = []
-	for i in range(len(school_day)):
-		kol_par.append(len(school_day[i].find_all('tr')))
-	if len(dni) == 5:
-		for i in range(1, 3):
-			df.columns = df.columns.droplevel(i)
-			df.columns = df.columns.droplevel(i)
-		df.columns = df.columns.droplevel(1)
-	elif len(dni) == 6:
-		for i in range(1, 3):
-			df.columns = df.columns.droplevel(i)
-			df.columns = df.columns.droplevel(i)
-		df.columns = df.columns.droplevel(1)
-		df.columns = df.columns.droplevel(1)
-	elif len(dni) == 4:
-		for i in range(1, 5):
+
+def take_table(url: str) -> Tag:
+	return bs(requests.get(url, timeout=0.01).text, "lxml").table
+
+
+def transform_to_dataframe(table: Tag) -> DataFrame:
+	return pd.read_html(str(table))[0]
+
+
+def get_all_days(table: Tag) -> list[Tag]:
+	return table.find_all('tbody')[1:]
+
+
+def get_amount_days(all_days: list[Tag]) -> list[int]:
+	amount_days = [len(day.find_all('tr')) for day in all_days]
+	return amount_days
+
+
+def delete_extra_column_dataframe(df: DataFrame, num_of_days: list[int]) -> DataFrame:
+	match len(num_of_days):
+		case 5:
+			for i in range(1, 3):
+				df.columns = df.columns.droplevel(i)
+				df.columns = df.columns.droplevel(i)
 			df.columns = df.columns.droplevel(1)
-	elif len(dni) == 3:
-		for i in range(1, 4):
+		case 6:
+			for i in range(1, 3):
+				df.columns = df.columns.droplevel(i)
+				df.columns = df.columns.droplevel(i)
 			df.columns = df.columns.droplevel(1)
-	elif len(dni) == 2:
-		for i in range(1, 3):
 			df.columns = df.columns.droplevel(1)
-
-	df.insert(0, "day_of_week", 5)
-	df.insert(0, "field_pair", 0)
-	time_par = ['08:30', '10:10', '11:50', '14:00', '15:40', '17:20', '19:00']
-	df = df.rename(columns={'Время': 'time', '№ пары': 'field_pair', 'День недели': 'day_of_week',
-	                        'Аудитория': 'audit', 'Преподаватель': 'teacher', 'Предмет': 'subject'})
-	# Форматируется время и заполняются номера пар
-	for i in range(0, len(df) - 1):
-		input = df['time'][i]
-		a = df['time'][i][:11] + " " + df['time'][i][11:]
-		df = df.replace({'time': {input: a}})
-
-	k = 0
-	for i in range(len(school_day)):
-		for j in range(kol_par[i]):
-			df['field_pair'][k] = int(j)
-			k += 1
-
-	# Заполняются дни недели
-	for i in range(0, (len(df) - 1)):
-		df['day_of_week'][i] = dni[n]
-		if df['field_pair'][i] > df['field_pair'][i + 1]:
-			n += 1
-
-	for i in range(0, len(df) - 1):
-		lab = re.search(r'Лабораторное', df['subject'][i])
-		prac = re.search(r'Практическое', df['subject'][i])
-		lek = re.search(r'Лекция', df['subject'][i])
-		if lab is not None:
-			df['subject'][i] = df['subject'][i][:lab.start()] + " " + df['subject'][i][lab.start():]
-		elif prac is not None:
-			df['subject'][i] = df['subject'][i][:prac.start()] + " " + df['subject'][i][prac.start():]
-		elif lek is not None:
-			df['subject'][i] = df['subject'][i][:lek.start()] + " " + df['subject'][i][lek.start():]
-
-	df['day_of_week'][len(df) - 1] = dni[-1]
-	input_data = df['time'][len(df) - 1]
-	a = df['time'][j][:11] + " " + df['time'][j][11:]
-	df = df.replace({'time': {input: a}})
-	lab = re.search(r'Лабораторное', df['subject'][len(df) - 1])
-	prac = re.search(r'Практическое', df['subject'][len(df) - 1])
-	lek = re.search(r'Лекция', df['subject'][len(df) - 1])
-	if lab is not None:
-		df['subject'][len(df) - 1] = df['subject'][len(df) - 1][:lab.start()] + " " + df['subject'][len(df) - 1][
-		                                                                              lab.start():]
-	elif prac is not None:
-		df['subject'][len(df) - 1] = df['subject'][len(df) - 1][:prac.start()] + " " + df['subject'][len(df) - 1][
-		                                                                               prac.start():]
-	elif lek is not None:
-		df['subject'][len(df) - 1] = df['subject'][len(df) - 1][:lek.start()] + " " + df['subject'][len(df) - 1][
-		                                                                              lek.start():]
+		case 4:
+			for i in range(1, 5):
+				df.columns = df.columns.droplevel(1)
+		case 3:
+			for i in range(1, 4):
+				df.columns = df.columns.droplevel(1)
+		case 2:
+			for i in range(1, 3):
+				df.columns = df.columns.droplevel(1)
 	return df
 
 
-#reload_database()
+def refactor_column(df: DataFrame) -> DataFrame:
+	df.insert(0, "day_of_week", 0)
+	df.insert(0, "field_pair", 0)
+	df = df.rename(columns={'Время': 'time', '№ пары': 'field_pair', 'День недели': 'day_of_week',
+	                        'Аудитория': 'audit', 'Преподаватель': 'teacher', 'Предмет': 'subject'})
+	return df
+
+
+def format_time_and_number_pairs(df: DataFrame, table: Tag, days) -> DataFrame:
+	all_days = get_all_days(table)
+	amount_pairs = [len(all_days[index].find_all('tr')) for index, element in enumerate(all_days)]
+	for index, element in enumerate(df):
+		df['time'][index] = f"{df['time'][index][:11]} {df['time'][index][11:]}"
+	k = 0
+	for index, element in enumerate(all_days):
+		for j, el in enumerate(amount_pairs):
+			df['field_pair'][k] = j + 1
+			k += 1
+	n = 0
+	for index in range(len(df) - 1):
+		df['day_of_week'][index] = days[n]
+		if df['field_pair'][index] > df['field_pair'][index + 1]:
+			n += 1
+	df['day_of_week'][-1:] = days[-1]
+	return df
+
+
+def refactor_subject_name(df: DataFrame) -> DataFrame:
+	for index in range(len(df)):
+		lab = re.search(r'Лабораторное', df['subject'][index])
+		prac = re.search(r'Практическое', df['subject'][index])
+		lek = re.search(r'Лекция', df['subject'][index])
+		if lab:
+			df['subject'][index] = f"{df['subject'][index][:lab.start()]} {df['subject'][index][lab.start():]}"
+		elif prac:
+			df['subject'][index] = f"{df['subject'][index][:prac.start()]} {df['subject'][index][prac.start():]}"
+		elif lek:
+			df['subject'][index] = f"{df['subject'][index][:lek.start()]} {df['subject'][index][lek.start():]}"
+	return df
+
+
+def parse_rasp(url):
+	table = take_table(url)
+	all_days = get_all_days(table)
+	dataframe = transform_to_dataframe(table)
+	amount_lecture = get_amount_days(all_days)
+	days = dataframe.columns[0][1:len(dataframe.columns[0])]
+	dataframe = delete_extra_column_dataframe(dataframe, amount_lecture)
+	dataframe = refactor_column(dataframe)
+	dataframe = format_time_and_number_pairs(dataframe, table, days)
+	dataframe = refactor_subject_name(dataframe)
+	return dataframe
+
+
+if __name__ == '__main__':
+	print(parse_rasp('https://www.smtu.ru/ru/viewschedule/2141/')['subject'])
