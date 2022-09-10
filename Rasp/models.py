@@ -2,7 +2,7 @@ from django.db import models
 
 
 class Table(models.Model):
-	id = models.IntegerField(primary_key=True)
+	index = models.IntegerField(primary_key=True)
 	field_pair = models.IntegerField(verbose_name='№ пары', blank=True,
 	                                 null=True)
 	day_of_week = models.TextField(verbose_name='День недели', blank=True,

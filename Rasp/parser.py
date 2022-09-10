@@ -1,95 +1,57 @@
 import sqlite3
 import time
 
-import numpy as np
+import aiohttp
+import asyncio
 import pandas as pd
-import requests
-import re
-from requests.exceptions import RequestException
 from bs4 import BeautifulSoup as bs
 from bs4.element import Tag
 from pandas.core.frame import DataFrame
+from pandas.api.types import CategoricalDtype
 
 pd.options.mode.chained_assignment = None
 
-"""
-В функции find_cab происходит поиск всех строк в которых в столбце 'Аудитория' номер кабинета содержит в себе передаваемый параметр
-Входные данные: cab - Шаблон по которому происходит поиск пар
-Выходные данные: found_sorted - Таблица с найденными парами в конкретном кабинете
-"""
+
+async def fetch_content(url: str, session: aiohttp.ClientSession) -> tuple[Tag, int]:
+	async with session.get(url) as response:
+		data = await response.text()
+		result = (bs(data, "lxml").table, int(url[36:-1]))
+		return result
 
 
-def find_cab(cab):
-	days = ['Понедельник', 'Вторник', 'Среда', 'Четверг', 'Пятница', 'Суббота']
-	try:
-		df = pd.read_pickle('database.pkl')
-		df.reset_index()
-		filter_par = df[df['audit'].str.contains(cab, case=False) == True]
-		found_class = filter_par
-		category_day = pd.api.types.CategoricalDtype(categories=days, ordered=True)
-		found_class['day_of_week'] = found_class['day_of_week'].astype(category_day)
-		found_class['day_of_week'] = found_class['day_of_week'].astype('category').cat.set_categories(days)
-		found_sorted = found_class.sort_values(by=['day_of_week', 'time'], ascending=[True, True])
-		found_sorted['field_pair'] = found_sorted['field_pair'].map(lambda x: x + 1)
-		'''found_sorted.to_excel('gotovo.xlsx', index=False, encoding='utf-8-sig')
-		xfile = openpyxl.load_workbook('gotovo.xlsx')
-		sheet = xfile.get_sheet_by_name('Sheet1')
-		sheet.column_dimensions['A'].width = 7
-		sheet.column_dimensions['B'].width = 13
-		sheet.column_dimensions['C'].width = 25
-		sheet.column_dimensions['D'].width = 25
-		sheet.column_dimensions['E'].width = 100
-		sheet.column_dimensions['F'].width = 43
-		xfile.save('gotovo.xlsx')'''
-		if not list(found_sorted.index.values):
-			return False
-		return found_sorted
-	except FileNotFoundError:
-		return "Нет файла"
+async def get_all_table() -> list[Tag]:
+	tasks = []
+	urls = await get_urls('https://www.smtu.ru/ru/listschedule/')
+	async with aiohttp.ClientSession(connector=aiohttp.TCPConnector(limit=80)) as session:
+		for item in urls:
+			task = asyncio.create_task(fetch_content(item, session))
+			tasks.append(task)
+		result = await asyncio.gather(*tasks)
+	return result
 
 
-def reload_database(URL="https://www.smtu.ru/ru/listschedule/"):
-	try:
-		r = requests.get(URL)
-		soup = bs(r.text, "html.parser")
-		test = soup.find_all(class_="gr")
-		if not test:
-			return 'Ошибка сервера, проверьте работоспособность расписания'
-		urls = []
-		k = 0
-		for item in test:
-			urls.append("https://www.smtu.ru" + item.a['href'])
-		df = pd.DataFrame(
-			{'field_pair': [], 'day_of_week': [], 'time': [], 'audit': [], 'subject': [], 'teacher': []})
-		df = parse_rasp(urls[0])
-		for i in range(1, len(urls)):
-			df = pd.concat([df, parse_rasp(urls[i])], ignore_index=True)
-
-		days = ['Понедельник', 'Вторник', 'Среда', 'Четверг', 'Пятница', 'Суббота']
-		found_class = df
-		category_day = pd.api.types.CategoricalDtype(categories=days, ordered=True)
-		found_class['day_of_week'] = found_class['day_of_week'].astype(category_day)
-		found_class['day_of_week'] = found_class['day_of_week'].astype('category').cat.set_categories(days)
-		found_sorted = found_class.sort_values(by=['day_of_week', 'time'], ascending=[True, True])
-		found_sorted = found_sorted.astype({'field_pair': np.int64})
-		conn = sqlite3.connect('../db.sqlite3')
-		found_sorted['id'] = 5
-		for i in range(len(found_sorted)):
-			found_sorted['id'][i] = i + 1
-		found_sorted = found_sorted.set_index('id')
-		found_sorted['day_of_week'] = found_sorted['day_of_week'].astype('str')
-		found_sorted.to_sql('Rasp_table', conn, if_exists='replace')
-
-		return 'База успешно обновлена'
-	except requests.exceptions.ConnectionError:
-		return 'Отсутствует интернет'
+async def get_urls(url: str) -> set[str]:
+	async with aiohttp.ClientSession() as session:
+		async with session.get(url) as response:
+			result = await asyncio.gather(response.text())
+			soup = bs(*result, "lxml")
+			tags_a = soup.find_all('a')
+		return {f"https://www.smtu.ru{i.get('href')}" for i in tags_a if '/ru/viewschedule/' in i.get('href')}
 
 
-start_time = time.time()
-
-
-def take_table(url: str) -> Tag:
-	return bs(requests.get(url, timeout=0.01).text, "lxml").table
+def reload():
+	tables = asyncio.run(get_all_table())
+	dataframe = DataFrame()
+	for table in tables:
+		dataframe = pd.concat([dataframe, parse_rasp(table[0], table[1])], ignore_index=True)
+	cat_type_order = CategoricalDtype(
+		['Понедельник', 'Вторник', 'Среда', 'Четверг', 'Пятница', 'Суббота'],
+		ordered=True
+	)
+	dataframe['day_of_week'] = dataframe['day_of_week'].astype(cat_type_order)
+	dataframe = dataframe.sort_values(by=['day_of_week', 'time'], ascending=[True, True])
+	conn = sqlite3.connect('../db.sqlite3')
+	dataframe.to_sql('Rasp_table', conn, if_exists='replace')
 
 
 def transform_to_dataframe(table: Tag) -> DataFrame:
@@ -130,22 +92,23 @@ def delete_extra_column_dataframe(df: DataFrame, num_of_days: list[int]) -> Data
 	return df
 
 
-def refactor_column(df: DataFrame) -> DataFrame:
+def refactor_column(df: DataFrame, gr_num: int) -> DataFrame:
 	df.insert(0, "day_of_week", 0)
 	df.insert(0, "field_pair", 0)
 	df = df.rename(columns={'Время': 'time', '№ пары': 'field_pair', 'День недели': 'day_of_week',
 	                        'Аудитория': 'audit', 'Преподаватель': 'teacher', 'Предмет': 'subject'})
+	df.insert(0, "num_group", gr_num)
 	return df
 
 
 def format_time_and_number_pairs(df: DataFrame, table: Tag, days) -> DataFrame:
 	all_days = get_all_days(table)
 	amount_pairs = [len(all_days[index].find_all('tr')) for index, element in enumerate(all_days)]
-	for index, element in enumerate(df):
+	for index in range(len(df)):
 		df['time'][index] = f"{df['time'][index][:11]} {df['time'][index][11:]}"
 	k = 0
-	for index, element in enumerate(all_days):
-		for j, el in enumerate(amount_pairs):
+	for index in range(len(all_days)):
+		for j in range(amount_pairs[index]):
 			df['field_pair'][k] = j + 1
 			k += 1
 	n = 0
@@ -171,18 +134,19 @@ def refactor_subject_name(df: DataFrame) -> DataFrame:
 	return df
 
 
-def parse_rasp(url):
-	table = take_table(url)
+def parse_rasp(table: Tag, group_number: int) -> DataFrame:
 	all_days = get_all_days(table)
 	dataframe = transform_to_dataframe(table)
 	amount_lecture = get_amount_days(all_days)
 	days = dataframe.columns[0][1:len(dataframe.columns[0])]
 	dataframe = delete_extra_column_dataframe(dataframe, amount_lecture)
-	dataframe = refactor_column(dataframe)
+	dataframe = refactor_column(dataframe, group_number)
 	dataframe = format_time_and_number_pairs(dataframe, table, days)
 	dataframe = refactor_subject_name(dataframe)
 	return dataframe
 
 
 if __name__ == '__main__':
-	print(parse_rasp('https://www.smtu.ru/ru/viewschedule/2141/')['subject'])
+	start = time.time()
+	reload()
+	print(f'Время обновления - {time.time()-start} сек')

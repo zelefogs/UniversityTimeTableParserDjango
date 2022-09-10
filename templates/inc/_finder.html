@@ -1,5 +1,8 @@
   <table class="table table-striped">
-      <thead>
+    {% if not_found %}
+        <h3>{{ not_found }}</h3>
+     {% else %}
+    <thead>
       <tr>
           <th>День недели</th>
           <th>Время пары</th>
@@ -8,9 +11,9 @@
           <th>Преподаватель</th>
       </tr>
       </thead>
+    {% endif %}
       <tbody>
       {% for element in table %}
-          {% if audit in element.audit %}
             <tr>
                 <td>{{ element.day_of_week }}</td>
                 <td>{{ element.time }}</td>
@@ -18,7 +21,6 @@
                 <td>{{ element.subject}}</td>
                 <td>{{ element.teacher|default:"" }}</td>
             </tr>
-          {% endif %}
       {% endfor %}
       </tbody>
         <h1>{{ element.subject|truncatechars:1 }}</h1>
