@@ -1,6 +1,7 @@
 import sqlite3
 import time
 
+import re
 import aiohttp
 import asyncio
 import pandas as pd
