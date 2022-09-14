@@ -1,0 +1,49 @@
+version: "3.10"
+
+services:
+  web:
+    build: ./
+    command: python manage.py runserver 0.0.0.0:8000
+    volumes:
+      - ./:/usr/src/app/
+    ports:
+      - 1337:8000
+    logging:
+      options:
+        max-size: "10m"
+        max-file: "2"
+    environment:
+      - DEBUG=0
+      - DJANGO_ALLOWED_HOSTS=localhost 127.0.0.1 [::1]
+    depends_on:
+      - redis
+  redis:
+    image: redis:alpine
+    logging:
+      options:
+        max-size: "10m"
+        max-file: "3"
+  celery:
+    build: ./
+    command: celery -A Rasp_smtu worker -l info
+    volumes:
+      - ./:/usr/src/app/
+    environment:
+      - DEBUG=0
+      - DJANGO_ALLOWED_HOSTS=localhost 127.0.0.1 [::1]
+    logging:
+      options:
+        max-size: "10m"
+        max-file: "3"
+    depends_on:
+      - redis
+  celery-beat:
+    build: ./
+    command: celery -A Rasp_smtu beat -l info
+    volumes:
+      - ./:/usr/src/app/
+    environment:
+      - DEBUG=0
+      - DJANGO_ALLOWED_HOSTS=localhost 127.0.0.1 [::1]
+    depends_on:
+      - redis

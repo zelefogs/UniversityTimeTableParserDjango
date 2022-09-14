@@ -10,6 +10,7 @@ class Table(models.Model):
 	time = models.TextField(verbose_name='Время', blank=True, null=True)
 	audit = models.TextField(verbose_name='Аудитория', blank=True, null=True)
 	subject = models.TextField(verbose_name='Предмет', blank=True, null=True)
+	num_group = models.IntegerField(verbose_name='Номер группы', blank=True, null=True)
 	teacher = models.TextField(verbose_name='Преподаватель', blank=True, null=True)
 
 	def __str__(self):

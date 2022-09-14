@@ -1,11 +1,14 @@
 from django.shortcuts import render
 from .models import Table
 import re
+import logging
+logger = logging.getLogger('main')
 
 
 def index(request):
 	if request.method == "POST":
 		name = request.POST.get("name").upper()
+		logger.info(f'Пользователь запросил кабинет "{name[:6]}" ')
 		if re.match('[А-Я]\s?[0-9]?[0-9]?[0-9]?$', name):
 			table = Table.objects.filter(audit__regex=name)
 			if table:

@@ -1,0 +1,37 @@
+  <table class="table table-striped">
+    {% if not_found %}
+        <h3 mt-5>{{ not_found }}</h3>
+     {% else %}
+    <thead>
+      <tr>
+          <th>День недели</th>
+          <th>Время пары</th>
+          <th>Аудитория</th>
+          <th>Предмет</th>
+          <th>Преподаватель</th>
+      </tr>
+      </thead>
+    {% endif %}
+      <tbody>
+      {% for element in table %}
+            <tr>
+                <td>{{ element.day_of_week }}</td>
+                <td style="text-align: center">{{ element.time|slice:':12' }}
+                    <br>
+                    {% if element.time|slice:'12:' == 'Верхняя неделя' %}
+                        <small class="badge bg-primary text-wrap" style="text-align: center">{{ element.time|slice:'12:' }}</small>
+                        {% elif element.time|slice:'12:' == 'Нижняя неделя' %}
+                        <small class="badge bg-danger text-wrap" style="text-align: center">{{ element.time|slice:'12:' }}</small>
+                    {% endif %}
+                </td>
+                <td>{{ element.audit }}</td>
+                <td>{{ element.subject}}</td>
+                <td style="text-align:center">{{ element.teacher|default:"" }}
+                <br>
+                    <small class="badge bg-primary text-wrap" style="text-align: center">Группа {{ element.num_group }}</small>
+                </td>
+            </tr>
+      {% endfor %}
+      </tbody>
+        <h1>{{ element.subject|truncatechars:1 }}</h1>
+  </table>
